@@ -33,7 +33,7 @@ async function fetchMembers() {
 
 async function fetchUsers() {
   try {
-    const res = await userApi.listUsers({ pageSize: 200 });
+    const res = await userApi.listUsers({ pageSize: 100 });
     allUsers.value = res.records;
   } catch { /* handled */ }
 }
