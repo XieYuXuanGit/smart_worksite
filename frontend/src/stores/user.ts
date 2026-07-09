@@ -22,7 +22,8 @@ export const useUserStore = defineStore('user', {
   }),
   getters: {
     isLoggedIn: (state) => Boolean(state.token),
-    displayName: (state) => state.user?.realName || state.user?.username || '未登录用户'
+    displayName: (state) => state.user?.realName || state.user?.username || '未登录用户',
+    isPlatformAdmin: (state) => state.roles.includes('PLATFORM_ADMIN')
   },
   actions: {
     persistUser(user: UserInfo | null) {

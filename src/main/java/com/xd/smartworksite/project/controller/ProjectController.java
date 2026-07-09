@@ -36,27 +36,27 @@ public class ProjectController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('project:manage')")
+    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
     public ApiResponse<ProjectResponse> createProject(@Valid @RequestBody ProjectCreateRequest request) {
         return ApiResponse.success(projectApplicationService.createProject(request));
     }
 
     @PutMapping("/{projectId}")
-    @PreAuthorize("hasAuthority('project:manage')")
+    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
     public ApiResponse<ProjectResponse> updateProject(@PathVariable Long projectId,
                                                       @Valid @RequestBody ProjectUpdateRequest request) {
         return ApiResponse.success(projectApplicationService.updateProject(projectId, request));
     }
 
     @DeleteMapping("/{projectId}")
-    @PreAuthorize("hasAuthority('project:manage')")
+    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
     public ApiResponse<Void> deleteProject(@PathVariable Long projectId) {
         projectApplicationService.deleteProject(projectId);
         return ApiResponse.success(null);
     }
 
     @PutMapping("/{projectId}/status")
-    @PreAuthorize("hasAuthority('project:manage')")
+    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
     public ApiResponse<Void> updateProjectStatus(@PathVariable Long projectId,
                                                  @Valid @RequestBody ProjectStatusRequest request) {
         projectApplicationService.updateProjectStatus(projectId, request.getStatus());

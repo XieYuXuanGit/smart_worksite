@@ -2,7 +2,7 @@
 import { computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessageBox } from 'element-plus';
-import { House, ChatLineRound, DocumentChecked, Files, Notebook, Picture, SwitchButton, User, Setting, UserFilled, Folder } from '@element-plus/icons-vue';
+import { House, ChatLineRound, DocumentChecked, Files, Notebook, Picture, SwitchButton, User, UserFilled, Folder } from '@element-plus/icons-vue';
 import { useProjectStore } from '../stores/project';
 import { useUserStore } from '../stores/user';
 
@@ -11,20 +11,21 @@ const router = useRouter();
 const projectStore = useProjectStore();
 const userStore = useUserStore();
 
+const roleLabels: Record<string, string> = { PLATFORM_ADMIN: '平台管理员', USER: '普通用户' };
+
 const menus = [
-  { path: '/dashboard', title: '首页工作台', icon: House, permission: 'dashboard:view' },
-  { path: '/knowledge', title: '知识库管理', icon: Notebook, permission: 'knowledge:view' },
-  { path: '/qa', title: '知识问答', icon: ChatLineRound, permission: 'qa:view' },
-  { path: '/review', title: '合规审查', icon: DocumentChecked, permission: 'review:view' },
-  { path: '/report', title: '报告管理', icon: Files, permission: 'report:view' },
-  { path: '/ocr', title: 'OCR识别', icon: Picture, permission: 'ocr:view' },
-  { path: '/project/manage', title: '项目管理', icon: Folder, permission: 'project:manage' },
-  { path: '/project/members', title: '项目成员', icon: UserFilled, permission: 'project:member:manage' },
-  { path: '/system/users', title: '用户管理', icon: User, permission: 'system:user:manage' },
-  { path: '/system/roles', title: '角色权限', icon: Setting, permission: 'system:user:manage' }
+  { path: '/dashboard', title: '首页工作台', icon: House },
+  { path: '/knowledge', title: '知识库管理', icon: Notebook },
+  { path: '/qa', title: '知识问答', icon: ChatLineRound },
+  { path: '/review', title: '合规审查', icon: DocumentChecked },
+  { path: '/report', title: '报告管理', icon: Files },
+  { path: '/ocr', title: 'OCR识别', icon: Picture },
+  { path: '/project/manage', title: '项目管理', icon: Folder, requireAdmin: true },
+  { path: '/project/members', title: '项目成员', icon: UserFilled },
+  { path: '/system/users', title: '用户管理', icon: User, requireAdmin: true },
 ];
 
-const visibleMenus = computed(() => menus.filter((item) => userStore.hasPermission(item.permission)));
+const visibleMenus = computed(() => menus.filter((item) => !item.requireAdmin || userStore.isPlatformAdmin));
 const activeMenu = computed(() => route.path.startsWith('/report') ? '/report' : route.path);
 const currentProject = computed(() => projectStore.currentProject);
 
@@ -58,7 +59,7 @@ async function logout() {
           <el-select v-model="projectStore.currentProjectId" style="width: 240px" :loading="projectStore.loading" @change="projectStore.switchProject">
             <el-option v-for="project in projectStore.projects" :key="project.projectId" :label="project.projectName" :value="String(project.projectId)" :disabled="project.status !== 'ENABLED'" />
           </el-select>
-          <el-dropdown><span class="user-chip">{{ userStore.displayName }} / {{ userStore.roles[0] || '业务人员' }}</span><template #dropdown><el-dropdown-menu><el-dropdown-item :icon="SwitchButton" @click="logout">退出登录</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
+          <el-dropdown><span class="user-chip">{{ userStore.displayName }} / {{ roleLabels[userStore.roles[0]] || '普通用户' }}</span><template #dropdown><el-dropdown-menu><el-dropdown-item :icon="SwitchButton" @click="logout">退出登录</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
         </div>
       </el-header>
       <el-main class="content"><router-view :key="projectStore.currentProjectId" /></el-main>

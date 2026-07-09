@@ -56,8 +56,7 @@ async function savePermissions() {
 onMounted(fetchData);
 
 const roleMap: Record<string, string> = {
-  PLATFORM_ADMIN: '平台管理员', PROJECT_ADMIN: '项目管理员',
-  BUSINESS_USER: '业务人员', VIEWER: '只读用户'
+  PLATFORM_ADMIN: '平台管理员', USER: '普通用户'
 };
 </script>
 

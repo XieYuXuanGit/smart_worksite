@@ -1,6 +1,7 @@
 package com.xd.smartworksite.auth.application;
 
 import com.xd.smartworksite.auth.domain.ProjectMember;
+import com.xd.smartworksite.auth.domain.ProjectRoleEnum;
 import com.xd.smartworksite.auth.dto.ProjectMemberCreateRequest;
 import com.xd.smartworksite.auth.dto.ProjectMemberResponse;
 import com.xd.smartworksite.auth.mapper.ProjectMemberMapper;
@@ -39,6 +40,7 @@ public class ProjectMemberApplicationService {
         if (projectMemberMapper.selectByProjectIdAndUserId(projectId, request.getUserId()) != null) {
             throw new BusinessException(ErrorCode.CONFLICT, "用户已是项目成员");
         }
+        validateProjectRole(request.getProjectRole());
         ProjectMember member = new ProjectMember();
         member.setProjectId(projectId);
         member.setUserId(request.getUserId());
@@ -53,6 +55,7 @@ public class ProjectMemberApplicationService {
         requireProjectManage(projectId);
         ProjectMember member = projectMemberMapper.selectByProjectIdAndUserId(projectId, userId);
         if (member == null) throw new BusinessException(ErrorCode.NOT_FOUND, "成员不存在");
+        validateProjectRole(request.getProjectRole());
         member.setProjectRole(request.getProjectRole());
         projectMemberMapper.update(member);
         return toResponse(projectMemberMapper.selectByProjectIdAndUserId(projectId, userId));
@@ -89,6 +92,13 @@ public class ProjectMemberApplicationService {
         ProjectMember member = projectMemberMapper.selectByProjectIdAndUserId(projectId, userId);
         if (member == null || !"PROJECT_ADMIN".equals(member.getProjectRole())) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "需要项目管理员权限");
+        }
+    }
+
+    private void validateProjectRole(String projectRole) {
+        if (!ProjectRoleEnum.isValid(projectRole)) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR,
+                    "无效的项目角色: " + projectRole + "，可选值: PROJECT_ADMIN, MEMBER, VIEWER");
         }
     }
 

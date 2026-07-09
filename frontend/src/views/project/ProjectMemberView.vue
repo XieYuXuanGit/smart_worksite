@@ -14,12 +14,12 @@ const loading = ref(false);
 
 const dialogVisible = ref(false);
 const editingUserId = ref<number | string | null>(null);
-const form = ref({ userId: '' as string | number, projectRole: 'BUSINESS_USER' });
+const form = ref({ userId: '' as string | number, projectRole: 'MEMBER' });
 
 const PROJECT_ROLES = [
   { value: 'PROJECT_ADMIN', label: '项目管理员' },
-  { value: 'BUSINESS_USER', label: '业务人员' },
-  { value: 'VIEWER', label: '只读用户' }
+  { value: 'MEMBER', label: '项目成员' },
+  { value: 'VIEWER', label: '只读观察者' }
 ];
 
 const roleLabel = (r: string) => PROJECT_ROLES.find(p => p.value === r)?.label || r;
@@ -46,7 +46,7 @@ const availableUsers = () => allUsers.value.filter(u => !existingUserIds().has(S
 
 function openAdd() {
   editingUserId.value = null;
-  form.value = { userId: '', projectRole: 'BUSINESS_USER' };
+  form.value = { userId: '', projectRole: 'MEMBER' };
   dialogVisible.value = true;
 }
 
