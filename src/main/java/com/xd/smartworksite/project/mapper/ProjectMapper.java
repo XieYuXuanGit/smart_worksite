@@ -7,7 +7,7 @@ import java.util.List;
 
 public interface ProjectMapper {
 
-    List<Project> selectPage(@Param("keyword") String keyword);
+    List<Project> selectPage(@Param("keyword") String keyword, @Param("userId") Long userId);
 
     Project selectById(@Param("projectId") Long projectId);
 

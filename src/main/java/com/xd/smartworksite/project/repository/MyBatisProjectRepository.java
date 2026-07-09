@@ -17,8 +17,8 @@ public class MyBatisProjectRepository implements ProjectRepository {
     }
 
     @Override
-    public List<Project> findPage(String keyword) {
-        return projectMapper.selectPage(keyword);
+    public List<Project> findPage(String keyword, Long userId) {
+        return projectMapper.selectPage(keyword, userId);
     }
 
     @Override

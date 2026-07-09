@@ -18,14 +18,17 @@
     </sql>
 
     <select id="selectPage" resultMap="ProjectResultMap">
-        select <include refid="ProjectColumns"/>
-        from project
-        where deleted = 0
-        <if test="keyword != null and keyword != ''">
-            and (project_name like concat('%', #{keyword}, '%')
-                 or project_code like concat('%', #{keyword}, '%'))
+        select distinct p.id, p.project_name, p.project_code, p.location, p.status, p.description, p.created_at, p.updated_at
+        from project p
+        <if test="userId != null">
+            inner join project_member pm on pm.project_id = p.id and pm.user_id = #{userId} and pm.deleted = 0
         </if>
-        order by created_at desc, id desc
+        where p.deleted = 0
+        <if test="keyword != null and keyword != ''">
+            and (p.project_name like concat('%', #{keyword}, '%')
+                 or p.project_code like concat('%', #{keyword}, '%'))
+        </if>
+        order by p.created_at desc, p.id desc
     </select>
 
     <select id="selectById" resultMap="ProjectResultMap">

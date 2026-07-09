@@ -36,8 +36,10 @@ public class ProjectApplicationService {
     }
 
     public PageResult<ProjectResponse> queryProjects(ProjectQueryRequest request) {
+        // Platform admin sees all projects; others only see projects they are a member of
+        Long userId = SecurityUtils.isPlatformAdmin() ? null : SecurityUtils.getCurrentUserId();
         Page<Project> page = PageHelper.startPage(request.getPageNo(), request.getPageSize())
-                .doSelectPage(() -> projectRepository.findPage(request.getKeyword()));
+                .doSelectPage(() -> projectRepository.findPage(request.getKeyword(), userId));
         List<ProjectResponse> records = page.getResult().stream().map(this::toResponse).toList();
         return new PageResult<>(request.getPageNo(), request.getPageSize(), page.getTotal(), records);
     }

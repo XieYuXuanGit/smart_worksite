@@ -7,7 +7,7 @@ import java.util.Optional;
 
 public interface ProjectRepository {
 
-    List<Project> findPage(String keyword);
+    List<Project> findPage(String keyword, Long userId);
 
     Optional<Project> findById(Long projectId);
 
