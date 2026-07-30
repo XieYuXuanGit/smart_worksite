@@ -104,6 +104,7 @@ public class PolicyApplicationService {
         source.setUrlHash(urlHash);
         source.setCrawlFrequency(normalizeFrequency(request.getCrawlFrequency()));
         source.setStatus(PolicySourceStatus.ENABLED.name());
+        source.setAutoIndex(!Boolean.FALSE.equals(request.getAutoIndex()));
         source.setDescription(trimToNull(request.getDescription()));
         source.setCreatedBy(SecurityUtils.getCurrentUserId());
         source.setUpdatedBy(SecurityUtils.getCurrentUserId());
@@ -126,9 +127,28 @@ public class PolicyApplicationService {
         source.setUrl(url);
         source.setUrlHash(urlHash);
         source.setCrawlFrequency(normalizeFrequency(request.getCrawlFrequency()));
+        source.setAutoIndex(request.getAutoIndex() == null ? !Boolean.FALSE.equals(source.getAutoIndex()) : request.getAutoIndex());
         source.setDescription(trimToNull(request.getDescription()));
         source.setUpdatedBy(SecurityUtils.getCurrentUserId());
         requireUpdated(policyRepository.updateSource(source), "policy source update failed");
+        return toSourceResponse(requireSource(sourceId));
+    }
+
+    /**
+     * CRAWLER-004：启用或停用采集任务。停用前拦截进行中的采集任务，避免任务执行到一半来源被关闭。
+     */
+    @Transactional
+    public PolicySourceResponse updateSourceStatus(Long sourceId, PolicySourceStatusRequest request) {
+        PolicySource source = requireSourceManage(sourceId);
+        String status = normalizeRequiredSourceStatus(request.getStatus());
+        if (status.equals(source.getStatus())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "policy source status is already " + status);
+        }
+        if (PolicySourceStatus.DISABLED.name().equals(status) && policyRepository.countActiveCrawlTask(sourceId) > 0) {
+            throw new BusinessException(ErrorCode.CONFLICT, "policy source has active crawl task and cannot be disabled");
+        }
+        requireUpdated(policyRepository.updateSourceStatus(sourceId, status, SecurityUtils.getCurrentUserId()),
+                "policy source status update failed");
         return toSourceResponse(requireSource(sourceId));
     }
 
@@ -141,6 +161,7 @@ public class PolicyApplicationService {
     @Transactional
     public PolicyCrawlTaskResponse createCrawlTask(PolicyCrawlTaskCreateRequest request) {
         Project project = projectAccessApplicationService.requireProjectWritableManage(request.getProjectId());
+        requirePolicyCrawlerEnabled(project);
         ensureDefaultKnowledgeBase(project);
         PolicySource source = null;
         if (request.getSourceId() != null) {
@@ -220,6 +241,44 @@ public class PolicyApplicationService {
         return new PageResult<>(request.getPageNo(), request.getPageSize(), page.getTotal(), page.getResult().stream().map(this::toArticleResponse).toList());
     }
 
+    /**
+     * CRAWLER-013：人工确认采集结果后入库。只处理 PENDING_CONFIRM 状态的文章，逐条同步索引到项目默认知识库。
+     */
+    @Transactional
+    public PolicyArticleConfirmResponse confirmArticles(PolicyArticleConfirmRequest request) {
+        Project project = projectAccessApplicationService.requireProjectWritableManage(request.getProjectId());
+        requirePolicyCrawlerEnabled(project);
+        Long knowledgeBaseId = ensureDefaultKnowledgeBase(project);
+        List<Long> articleIds = request.getArticleIds().stream().filter(java.util.Objects::nonNull).distinct().toList();
+        if (articleIds.isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "articleIds is required");
+        }
+        List<PolicyArticle> articles = policyRepository.findArticlesByIds(request.getProjectId(), articleIds);
+        if (articles.size() != articleIds.size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "some policy articles do not exist in this project");
+        }
+        PolicyArticleConfirmResponse response = new PolicyArticleConfirmResponse();
+        int confirmed = 0;
+        for (PolicyArticle article : articles) {
+            if (!PolicyIndexStatus.PENDING_CONFIRM.name().equals(article.getIndexStatus())) {
+                throw new BusinessException(ErrorCode.CONFLICT,
+                        "policy article " + article.getId() + " is not waiting for confirmation, current status " + article.getIndexStatus());
+            }
+        }
+        for (PolicyArticle article : articles) {
+            try {
+                indexArticle(article, knowledgeBaseId);
+                confirmed++;
+            } catch (RuntimeException ex) {
+                response.getFailures().add(new PolicyArticleConfirmResponse.PolicyArticleConfirmFailure(
+                        article.getId(), truncateError(ex.getMessage())));
+            }
+        }
+        response.setConfirmedCount(confirmed);
+        response.setFailedCount(response.getFailures().size());
+        return response;
+    }
+
     @Transactional
     public int createDueScheduledCrawlTasks() {
         int created = 0;
@@ -229,6 +288,10 @@ public class PolicyApplicationService {
                     continue;
                 }
                 Project project = projectAccessApplicationService.requireProjectWritableForSystem(source.getProjectId());
+                if (!isPolicyCrawlerEnabled(project)) {
+                    // PROJECT-017：项目未开启互联网政策资讯采集，定时调度直接跳过，不记为来源失败
+                    continue;
+                }
                 ensureDefaultKnowledgeBase(project);
                 GenerateTask task = new GenerateTask();
                 task.setProjectId(source.getProjectId());
@@ -283,6 +346,7 @@ public class PolicyApplicationService {
 
     private void doExecuteCrawlTask(PolicyCrawlTask task) {
         Project project = projectAccessApplicationService.requireProjectWritableForSystem(task.getProjectId());
+        requirePolicyCrawlerEnabled(project);
         Long knowledgeBaseId = ensureDefaultKnowledgeBase(project);
         List<PolicySource> sources = task.getSourceId() == null
                 ? policyRepository.findEnabledSourcesByProject(task.getProjectId())
@@ -296,6 +360,8 @@ public class PolicyApplicationService {
         int failed = 0;
         int articleFailed = 0;
         int skipped = 0;
+        int pendingConfirm = 0;
+        int unchanged = 0;
         String lastError = null;
         for (PolicySource source : sources) {
             try {
@@ -304,8 +370,21 @@ public class PolicyApplicationService {
                 fetched += response.getFetchedCount() == null ? articles.size() : response.getFetchedCount();
                 articleFailed += response.getFailedCount() == null ? 0 : response.getFailedCount();
                 skipped += response.getSkippedCount() == null ? 0 : response.getSkippedCount();
+                boolean autoIndex = !Boolean.FALSE.equals(source.getAutoIndex());
                 for (PolicyCrawlerArticle item : articles) {
                     PolicyArticle article = upsertArticle(source, item);
+                    if (PolicyIndexStatus.SUCCESS.name().equals(article.getIndexStatus())) {
+                        // 内容未变化的已入库文章不重复送 RAG，避免每轮重复 embedding
+                        unchanged++;
+                        continue;
+                    }
+                    if (!autoIndex) {
+                        // CRAWLER-013：政策源关闭自动入库时停在待确认，不写向量库
+                        requireUpdated(policyRepository.markArticlePendingConfirm(article.getId(), SYSTEM_USER_ID),
+                                "policy article pending confirm state update failed");
+                        pendingConfirm++;
+                        continue;
+                    }
                     try {
                         indexArticle(article, knowledgeBaseId);
                         indexed++;
@@ -323,8 +402,10 @@ public class PolicyApplicationService {
         }
         // 终态只由源级失败和入库失败决定；Python 侧单篇抓取失败和附件跳过只记录，不让个别文章拖垮整个任务
         String status = failed > 0 ? TaskStatus.FAILED.name() : TaskStatus.SUCCESS.name();
-        String message = String.format("policy crawl %s, fetched=%d, indexed=%d, indexFailed=%d, articleFailed=%d, skipped=%d",
-                failed > 0 ? "completed with failures" : "completed", fetched, indexed, failed, articleFailed, skipped);
+        String message = String.format(
+                "policy crawl %s, fetched=%d, indexed=%d, pendingConfirm=%d, unchanged=%d, indexFailed=%d, articleFailed=%d, skipped=%d",
+                failed > 0 ? "completed with failures" : "completed",
+                fetched, indexed, pendingConfirm, unchanged, failed, articleFailed, skipped);
         requireUpdated(policyRepository.updateCrawlTaskProgress(task.getTaskId(), status, 100, fetched, indexed,
                 failed + articleFailed, message, lastError, SYSTEM_USER_ID),
                 "policy crawl task final state update failed");
@@ -371,6 +452,13 @@ public class PolicyApplicationService {
         String hash = sha256(url);
         PolicyArticle article = policyRepository.findArticleByProjectAndHash(source.getProjectId(), hash).orElseGet(PolicyArticle::new);
         boolean creating = article.getId() == null;
+        if (!creating
+                && PolicyIndexStatus.SUCCESS.name().equals(article.getIndexStatus())
+                && content.equals(article.getContent())) {
+            // CRAWLER-019：内容未变化的已入库文章保持 SUCCESS，不回退状态、不重复入 RAG。
+            // 不做这层判断，人工确认过的文章下一轮采集会被打回待确认。
+            return article;
+        }
         article.setProjectId(source.getProjectId());
         article.setSourceId(source.getId());
         article.setTitle(limit(title, 256));
@@ -433,28 +521,53 @@ public class PolicyApplicationService {
                 "policy crawl failed", truncateError(error), SYSTEM_USER_ID), "policy crawl task failure state update failed");
     }
 
+    /**
+     * PROJECT-017：项目未开启互联网政策资讯采集时拒绝采集。
+     * settings 缺失按未开启处理，错误文案引导到项目设置。
+     */
+    private void requirePolicyCrawlerEnabled(Project project) {
+        if (!isPolicyCrawlerEnabled(project)) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "该项目尚未开启「互联网政策资讯采集」。请到「项目管理 → 项目设置」打开该开关后重试。");
+        }
+    }
+
+    private boolean isPolicyCrawlerEnabled(Project project) {
+        ProjectSettingsResponse settings = parseSettings(project);
+        return settings != null && Boolean.TRUE.equals(settings.getInternetPolicyCrawlerEnabled());
+    }
+
     private Long ensureDefaultKnowledgeBase(Project project) {
         Long knowledgeBaseId = parseDefaultKnowledgeBaseId(project);
         if (knowledgeBaseId == null) {
-            throw new BusinessException(ErrorCode.CONFLICT, "project defaultKnowledgeBaseId is required for policy crawler indexing");
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "该项目尚未配置「默认知识库」，采集结果无处入库。请到「项目管理 → 项目设置」填写「默认知识库ID」后重试。");
         }
         KnowledgeBase knowledgeBase = knowledgeBaseRepository.findById(knowledgeBaseId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "default knowledge base not found"));
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
+                        "「默认知识库ID」指向的知识库不存在，请到「项目管理 → 项目设置」更正。"));
         if (!project.getId().equals(knowledgeBase.getProjectId())) {
-            throw new BusinessException(ErrorCode.PARAM_ERROR, "default knowledge base does not belong to project");
+            throw new BusinessException(ErrorCode.PARAM_ERROR,
+                    "「默认知识库ID」指向的知识库不属于当前项目，请到「项目管理 → 项目设置」更正。");
         }
         if (!KnowledgeBaseStatus.ENABLED.name().equals(knowledgeBase.getStatus())) {
-            throw new BusinessException(ErrorCode.CONFLICT, "default knowledge base is disabled");
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "「默认知识库」已被停用，请先到「知识库管理」启用它，或在项目设置中换一个已启用的知识库。");
         }
         return knowledgeBaseId;
     }
 
     private Long parseDefaultKnowledgeBaseId(Project project) {
+        ProjectSettingsResponse settings = parseSettings(project);
+        return settings == null ? null : settings.getDefaultKnowledgeBaseId();
+    }
+
+    private ProjectSettingsResponse parseSettings(Project project) {
         if (project.getSettings() == null || project.getSettings().isBlank()) {
             return null;
         }
         try {
-            return objectMapper.readValue(project.getSettings(), ProjectSettingsResponse.class).getDefaultKnowledgeBaseId();
+            return objectMapper.readValue(project.getSettings(), ProjectSettingsResponse.class);
         } catch (Exception ex) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "project settings json parse failed");
         }
@@ -515,6 +628,14 @@ public class PolicyApplicationService {
         }
     }
 
+    private String normalizeRequiredSourceStatus(String value) {
+        try {
+            return PolicySourceStatus.valueOf(normalizeRequired(value, "status is required").toUpperCase(Locale.ROOT)).name();
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "status must be ENABLED or DISABLED");
+        }
+    }
+
     private String normalizeOptionalSourceStatus(String value) {
         if (value == null || value.isBlank()) return null;
         try { return PolicySourceStatus.valueOf(value.trim().toUpperCase(Locale.ROOT)).name(); }
@@ -572,6 +693,7 @@ public class PolicyApplicationService {
         response.setUrl(source.getUrl());
         response.setCrawlFrequency(source.getCrawlFrequency());
         response.setStatus(source.getStatus());
+        response.setAutoIndex(!Boolean.FALSE.equals(source.getAutoIndex()));
         response.setDescription(source.getDescription());
         response.setLastCrawledAt(source.getLastCrawledAt());
         response.setLastError(source.getLastError());

@@ -1,6 +1,6 @@
 import { mockPolicyArticles, mockPolicySources, mockPolicyTasks } from '../mocks/policy';
 import { request } from '../utils/request';
-import type { ID, PageQuery, PageResult, PolicyArticle, PolicyCrawlTask, PolicySource, PolicySourceForm } from './types';
+import type { ID, PageQuery, PageResult, PolicyArticle, PolicyArticleConfirmResult, PolicyCrawlTask, PolicySource, PolicySourceForm } from './types';
 import { useModuleMock } from './mock';
 
 const useMock = useModuleMock('VITE_USE_POLICY_MOCK', true);
@@ -46,6 +46,16 @@ export async function updatePolicySource(sourceId: ID, data: PolicySourceForm) {
     return sourceState[index];
   }
   return request.put<PolicySource>(`/policy/sources/${sourceId}`, data);
+}
+
+export async function updatePolicySourceStatus(sourceId: ID, status: string) {
+  if (useMock) {
+    const index = sourceState.findIndex((item) => String(item.sourceId) === String(sourceId));
+    if (index < 0) throw new Error(`政策源不存在：${sourceId}`);
+    sourceState[index] = { ...sourceState[index], status, updatedAt: new Date().toISOString() };
+    return sourceState[index];
+  }
+  return request.patch<PolicySource>(`/policy/sources/${sourceId}/status`, { status });
 }
 
 export async function deletePolicySource(sourceId: ID) {
@@ -104,4 +114,19 @@ export async function fetchPolicyArticles(params: PageQuery & { sourceId?: ID; i
     return paginate(records, params);
   }
   return request.get<PageResult<PolicyArticle>>('/policy/articles', { params });
+}
+
+export async function confirmPolicyArticles(data: { projectId: ID; articleIds: ID[] }) {
+  if (useMock) {
+    let confirmed = 0;
+    data.articleIds.forEach((articleId) => {
+      const index = articleState.findIndex((item) => String(item.articleId) === String(articleId));
+      if (index >= 0) {
+        articleState[index] = { ...articleState[index], indexStatus: 'SUCCESS', updatedAt: new Date().toISOString() };
+        confirmed += 1;
+      }
+    });
+    return { confirmedCount: confirmed, failedCount: 0, failures: [] } satisfies PolicyArticleConfirmResult;
+  }
+  return request.post<PolicyArticleConfirmResult>('/policy/articles/confirm', data);
 }

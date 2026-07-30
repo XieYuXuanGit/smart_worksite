@@ -1,5 +1,5 @@
 package com.xd.smartworksite.policy.domain;
 
 public enum PolicyIndexStatus {
-    PENDING, INDEXING, SUCCESS, FAILED
+    PENDING, PENDING_CONFIRM, INDEXING, SUCCESS, FAILED
 }

@@ -5,11 +5,22 @@ import { Refresh, Search } from '@element-plus/icons-vue';
 import AppTable from '../../components/common/AppTable.vue';
 import EmptyState from '../../components/common/EmptyState.vue';
 import StatusTag from '../../components/common/StatusTag.vue';
-import { createPolicyCrawlTask, createPolicySource, deletePolicySource, fetchPolicyArticles, fetchPolicyCrawlTasks, fetchPolicySources, updatePolicySource } from '../../api/policy';
+import { useRouter } from 'vue-router';
+import { confirmPolicyArticles, createPolicyCrawlTask, createPolicySource, deletePolicySource, fetchPolicyArticles, fetchPolicyCrawlTasks, fetchPolicySources, updatePolicySource, updatePolicySourceStatus } from '../../api/policy';
+import { fetchProjectSettings } from '../../api/project';
+import { fetchKnowledgeBases } from '../../api/knowledge';
 import { useProjectStore } from '../../stores/project';
-import type { ID, PolicyArticle, PolicyCrawlTask, PolicySource } from '../../api/types';
+import type { ID, PolicyArticle, PolicyCrawlTask, PolicySource, ProjectSettings } from '../../api/types';
 
+const router = useRouter();
 const projectStore = useProjectStore();
+// 采集前置条件：项目已开启互联网政策资讯采集，且已配置默认知识库
+const readiness = reactive({
+  loading: false,
+  crawlerEnabled: true,
+  hasDefaultKnowledgeBase: true,
+  knowledgeBaseCount: -1
+});
 const sourceLoading = ref(false);
 const taskLoading = ref(false);
 const articleLoading = ref(false);
@@ -23,12 +34,69 @@ const sources = ref<PolicySource[]>([]);
 const tasks = ref<PolicyCrawlTask[]>([]);
 const articles = ref<PolicyArticle[]>([]);
 const articlePager = reactive({ pageNo: 1, pageSize: 10, total: 0, keyword: '', sourceId: '' as ID | '', indexStatus: '' });
-const form = reactive({ sourceId: '' as ID | '', name: '', url: '', crawlFrequency: 'DAILY', description: '' });
+const form = reactive({ sourceId: '' as ID | '', name: '', url: '', crawlFrequency: 'DAILY', autoIndex: true, description: '' });
+const statusUpdatingId = ref<ID | ''>('');
+const confirming = ref(false);
+const selectedArticles = ref<PolicyArticle[]>([]);
 const projectId = computed(() => projectStore.currentProject?.projectId || '');
 const activeCrawlSourceIds = computed(() => new Set(tasks.value.filter((task) => ['QUEUED', 'RUNNING', 'RETRYING'].includes(String(task.status))).map((task) => task.sourceId || 'ALL')));
+const confirmableArticles = computed(() => selectedArticles.value.filter((article) => article.indexStatus === 'PENDING_CONFIRM'));
+const crawlReady = computed(() => readiness.crawlerEnabled && readiness.hasDefaultKnowledgeBase);
+const readinessTitle = computed(() => {
+  if (!readiness.crawlerEnabled) return '该项目尚未开启「互联网政策资讯采集」，暂时无法执行采集';
+  if (!readiness.hasDefaultKnowledgeBase) return '该项目尚未配置「默认知识库」，采集结果无处入库';
+  return '';
+});
+const readinessHint = computed(() => {
+  if (!readiness.crawlerEnabled) {
+    return '请到「项目管理 → 项目设置」打开「互联网政策资讯采集」开关，同时在「默认知识库」下拉框里选择一个知识库，保存后即可采集。';
+  }
+  if (!readiness.hasDefaultKnowledgeBase) {
+    return readiness.knowledgeBaseCount === 0
+      ? '该项目下还没有任何知识库。请先到「知识库管理」新建一个，再回到「项目管理 → 项目设置」的「默认知识库」下拉框里选中它。'
+      : '请到「项目管理 → 项目设置」，在「默认知识库」下拉框里选择一个已启用的知识库，保存后即可采集。';
+  }
+  return '';
+});
+
+/**
+ * 后端对采集前置条件已返回可操作的中文提示，这里只负责：
+ * 识别出属于前置条件的提示时刷新页面顶部引导横幅，其余消息原样透传。
+ */
+function toFriendlyMessage(err: unknown, fallback: string) {
+  const raw = err instanceof Error ? err.message : '';
+  if (raw.includes('项目设置') || raw.includes('知识库管理')) {
+    void loadReadiness();
+  }
+  return raw || fallback;
+}
+
+async function loadReadiness() {
+  if (!projectId.value) return;
+  readiness.loading = true;
+  try {
+    const settings: ProjectSettings = await fetchProjectSettings(projectId.value);
+    readiness.crawlerEnabled = settings.internetPolicyCrawlerEnabled === true;
+    readiness.hasDefaultKnowledgeBase = Boolean(settings.defaultKnowledgeBaseId);
+    if (!readiness.hasDefaultKnowledgeBase) {
+      const bases = await fetchKnowledgeBases(projectId.value, { pageNo: 1, pageSize: 1 });
+      readiness.knowledgeBaseCount = bases.length;
+    }
+  } catch {
+    // 前置检查失败不阻塞页面：保持按钮可用，真正采集时后端仍会拦并给出引导
+    readiness.crawlerEnabled = true;
+    readiness.hasDefaultKnowledgeBase = true;
+  } finally {
+    readiness.loading = false;
+  }
+}
+
+function goProjectSettings() {
+  void router.push('/projects');
+}
 
 function resetForm() {
-  Object.assign(form, { sourceId: '', name: '', url: '', crawlFrequency: 'DAILY', description: '' });
+  Object.assign(form, { sourceId: '', name: '', url: '', crawlFrequency: 'DAILY', autoIndex: true, description: '' });
 }
 
 function openCreate() {
@@ -37,7 +105,14 @@ function openCreate() {
 }
 
 function openEdit(row: PolicySource) {
-  Object.assign(form, { sourceId: row.sourceId, name: row.name, url: row.url, crawlFrequency: row.crawlFrequency, description: row.description || '' });
+  Object.assign(form, {
+    sourceId: row.sourceId,
+    name: row.name,
+    url: row.url,
+    crawlFrequency: row.crawlFrequency,
+    autoIndex: row.autoIndex !== false,
+    description: row.description || ''
+  });
   sourceDialogVisible.value = true;
 }
 
@@ -105,7 +180,7 @@ async function loadArticles() {
 }
 
 async function refreshAll() {
-  await Promise.all([loadSources(), loadTasks(), loadArticles()]);
+  await Promise.all([loadReadiness(), loadSources(), loadTasks(), loadArticles()]);
 }
 
 async function saveSource() {
@@ -113,8 +188,9 @@ async function saveSource() {
   if (message) return ElMessage.warning(message);
   saving.value = true;
   try {
-    if (form.sourceId) await updatePolicySource(form.sourceId, { name: form.name.trim(), url: form.url.trim(), crawlFrequency: form.crawlFrequency, description: form.description.trim() || undefined });
-    else await createPolicySource({ projectId: projectId.value, name: form.name.trim(), url: form.url.trim(), crawlFrequency: form.crawlFrequency, description: form.description.trim() || undefined });
+    const payload = { name: form.name.trim(), url: form.url.trim(), crawlFrequency: form.crawlFrequency, autoIndex: form.autoIndex, description: form.description.trim() || undefined };
+    if (form.sourceId) await updatePolicySource(form.sourceId, payload);
+    else await createPolicySource({ projectId: projectId.value, ...payload });
     ElMessage.success(form.sourceId ? '政策源已更新' : '政策源已创建');
     sourceDialogVisible.value = false;
     await loadSources();
@@ -139,6 +215,7 @@ async function removeSource(row: PolicySource) {
 
 async function crawl(sourceId?: ID) {
   if (!projectId.value) return ElMessage.warning('请先选择项目');
+  if (!crawlReady.value) return ElMessage.warning(readinessHint.value);
   if (activeCrawlSourceIds.value.has(sourceId || 'ALL')) return ElMessage.warning('该政策源已有进行中的爬取任务');
   crawlingId.value = sourceId || 'ALL';
   try {
@@ -146,7 +223,7 @@ async function crawl(sourceId?: ID) {
     ElMessage.success('政策资讯爬取任务已提交');
     await refreshAll();
   } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '政策资讯爬取任务提交失败');
+    ElMessage.warning(toFriendlyMessage(err, '政策资讯爬取任务提交失败'));
   } finally {
     crawlingId.value = '';
   }
@@ -154,6 +231,37 @@ async function crawl(sourceId?: ID) {
 
 function isCrawlingSource(sourceId: ID) {
   return crawlingId.value === sourceId || activeCrawlSourceIds.value.has(sourceId);
+}
+
+async function toggleSourceStatus(row: PolicySource) {
+  const nextStatus = row.status === 'ENABLED' ? 'DISABLED' : 'ENABLED';
+  statusUpdatingId.value = row.sourceId;
+  try {
+    await updatePolicySourceStatus(row.sourceId, nextStatus);
+    ElMessage.success(nextStatus === 'ENABLED' ? '政策源已启用' : '政策源已停用');
+    await loadSources();
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '政策源状态更新失败');
+  } finally {
+    statusUpdatingId.value = '';
+  }
+}
+
+async function confirmSelectedArticles() {
+  if (!projectId.value) return ElMessage.warning('请先选择项目');
+  if (!confirmableArticles.value.length) return ElMessage.warning('请先勾选待确认的政策资讯');
+  confirming.value = true;
+  try {
+    const result = await confirmPolicyArticles({ projectId: projectId.value, articleIds: confirmableArticles.value.map((item) => item.articleId) });
+    if (result.failedCount) ElMessage.warning(`确认入库完成：成功 ${result.confirmedCount} 条，失败 ${result.failedCount} 条`);
+    else ElMessage.success(`已确认入库 ${result.confirmedCount} 条`);
+    selectedArticles.value = [];
+    await loadArticles();
+  } catch (err) {
+    ElMessage.warning(toFriendlyMessage(err, '确认入库失败'));
+  } finally {
+    confirming.value = false;
+  }
 }
 
 function searchArticles() {
@@ -172,21 +280,30 @@ onMounted(refreshAll);
         <p class="page-desc">配置互联网政策资讯来源，模拟爬取任务和知识更新状态，支撑知识问答的政策来源演示。</p>
       </div>
       <div class="header-actions">
-        <el-button :icon="Refresh" :loading="crawlingId === 'ALL'" :disabled="activeCrawlSourceIds.has('ALL')" @click="crawl()">爬取全部</el-button>
+        <el-button :icon="Refresh" :loading="crawlingId === 'ALL'" :disabled="activeCrawlSourceIds.has('ALL') || !crawlReady" @click="crawl()">爬取全部</el-button>
         <el-button type="primary" @click="openCreate">新增政策源</el-button>
       </div>
     </div>
 
+    <el-alert v-if="!readiness.loading && !crawlReady" :title="readinessTitle" type="warning" show-icon :closable="false" class="readiness-alert">
+      <template #default>
+        <p class="readiness-hint">{{ readinessHint }}</p>
+        <el-button type="primary" size="small" @click="goProjectSettings">前往项目设置</el-button>
+      </template>
+    </el-alert>
+
     <div class="two-col policy-grid">
       <el-card class="work-card">
         <template #header><strong>政策源配置</strong></template>
-        <AppTable :loading="sourceLoading" :error="sourceError" :data="sources" :columns="[{ prop: 'name', label: '来源名称', slot: 'sourceName' }, { prop: 'crawlFrequency', label: '频率', width: 90 }, { prop: 'status', label: '状态', slot: 'status', width: 100 }]">
+        <AppTable :loading="sourceLoading" :error="sourceError" :data="sources" :columns="[{ prop: 'name', label: '来源名称', slot: 'sourceName' }, { prop: 'crawlFrequency', label: '频率', width: 80 }, { prop: 'status', label: '状态', slot: 'status', width: 90 }, { prop: 'autoIndex', label: '入库方式', slot: 'autoIndex', width: 100 }]">
           <template #empty><EmptyState description="暂无政策源，可先新增一个互联网政策栏目地址。" /></template>
-          <template #sourceName="{ row }"><div><strong>{{ row.name }}</strong><p class="muted url-text">{{ row.url }}</p></div></template>
+          <template #sourceName="{ row }"><div><strong>{{ row.name }}</strong><p class="muted url-text">{{ row.url }}</p><p v-if="row.lastError" class="muted error-text">最近失败：{{ row.lastError }}</p></div></template>
           <template #status="{ row }"><StatusTag :status="row.status" /></template>
-          <el-table-column label="操作" width="210">
+          <template #autoIndex="{ row }"><el-tag size="small" :type="row.autoIndex === false ? 'warning' : 'success'">{{ row.autoIndex === false ? '人工确认' : '自动' }}</el-tag></template>
+          <el-table-column label="操作" width="260">
             <template #default="{ row }">
-              <el-button link type="primary" :loading="crawlingId === row.sourceId" :disabled="isCrawlingSource(row.sourceId)" @click="crawl(row.sourceId)">爬取</el-button>
+              <el-button link type="primary" :loading="crawlingId === row.sourceId" :disabled="isCrawlingSource(row.sourceId) || row.status !== 'ENABLED' || !crawlReady" @click="crawl(row.sourceId)">爬取</el-button>
+              <el-button link :loading="statusUpdatingId === row.sourceId" @click="toggleSourceStatus(row)">{{ row.status === 'ENABLED' ? '停用' : '启用' }}</el-button>
               <el-button link @click="openEdit(row)">编辑</el-button>
               <el-button link type="danger" @click="removeSource(row)">删除</el-button>
             </template>
@@ -216,17 +333,20 @@ onMounted(refreshAll);
               <el-option v-for="source in sources" :key="source.sourceId" :label="source.name" :value="source.sourceId" />
             </el-select>
             <el-select v-model="articlePager.indexStatus" clearable placeholder="入库状态" style="width:140px" @change="searchArticles">
-              <el-option label="已入库" value="SUCCESS" />
+              <el-option label="待确认" value="PENDING_CONFIRM" />
+              <el-option label="待入库" value="PENDING" />
               <el-option label="入库中" value="INDEXING" />
+              <el-option label="已入库" value="SUCCESS" />
               <el-option label="失败" value="FAILED" />
             </el-select>
             <el-button type="primary" :icon="Search" @click="searchArticles">查询</el-button>
+            <el-button type="success" :loading="confirming" :disabled="!confirmableArticles.length" @click="confirmSelectedArticles">确认入库{{ confirmableArticles.length ? `（${confirmableArticles.length}）` : '' }}</el-button>
           </div>
         </div>
       </template>
-      <AppTable :loading="articleLoading" :error="articleError" :data="articles" :total="articlePager.total" :page-no="articlePager.pageNo" :page-size="articlePager.pageSize" :columns="[{ prop: 'title', label: '标题', slot: 'title' }, { prop: 'category', label: '分类', width: 120 }, { prop: 'publishDate', label: '发布日期', width: 130 }, { prop: 'indexStatus', label: '入库状态', slot: 'indexStatus', width: 120 }]" @page-change="(p, s) => { articlePager.pageNo = p; articlePager.pageSize = s; loadArticles(); }">
+      <AppTable :loading="articleLoading" :error="articleError" :data="articles" :total="articlePager.total" :page-no="articlePager.pageNo" :page-size="articlePager.pageSize" :columns="[{ prop: 'title', label: '标题', slot: 'title' }, { prop: 'policyNo', label: '政策编号', width: 150 }, { prop: 'publishDate', label: '发布日期', width: 120 }, { prop: 'indexStatus', label: '入库状态', slot: 'indexStatus', width: 110 }]" selectable :selectable-filter="(row: PolicyArticle) => row.indexStatus === 'PENDING_CONFIRM'" @page-change="(p, s) => { articlePager.pageNo = p; articlePager.pageSize = s; loadArticles(); }" @selection-change="(rows: PolicyArticle[]) => (selectedArticles = rows)">
         <template #empty><EmptyState description="暂无政策资讯，请先触发政策源爬取。" /></template>
-        <template #title="{ row }"><div><strong>{{ row.title }}</strong><p class="muted">{{ row.summary }}</p><p class="muted url-text">{{ row.url }}</p></div></template>
+        <template #title="{ row }"><div><strong>{{ row.title }}</strong><p class="muted">{{ row.summary }}</p><p class="muted url-text">{{ row.url }}</p><p v-if="row.errorMessage" class="muted error-text">{{ row.errorMessage }}</p></div></template>
         <template #indexStatus="{ row }"><StatusTag :status="row.indexStatus" /></template>
       </AppTable>
     </el-card>
@@ -241,6 +361,10 @@ onMounted(refreshAll);
             <el-option label="每日" value="DAILY" />
             <el-option label="每周" value="WEEKLY" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="入库方式">
+          <el-switch v-model="form.autoIndex" active-text="自动入库" inactive-text="人工确认后入库" />
+          <p class="muted">关闭后，采集到的政策资讯先进入「待确认」，需人工勾选确认才写入项目知识库。</p>
         </el-form-item>
         <el-form-item label="说明"><el-input v-model="form.description" type="textarea" placeholder="记录采集范围、栏目说明或更新要求" /></el-form-item>
       </el-form>
@@ -259,5 +383,8 @@ onMounted(refreshAll);
 .task-card:last-child { border-bottom: 0; }
 .muted { color: var(--sw-muted); font-size: 13px; line-height: 1.6; }
 .url-text { word-break: break-all; margin: 4px 0 0; }
+.error-text { color: var(--el-color-danger); word-break: break-all; margin: 4px 0 0; }
+.readiness-alert { margin-bottom: 16px; }
+.readiness-hint { margin: 4px 0 10px; line-height: 1.7; }
 @media (max-width: 960px) { .table-head, .filters, .header-actions { align-items: stretch; flex-direction: column; } }
 </style>

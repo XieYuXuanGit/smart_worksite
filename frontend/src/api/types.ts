@@ -502,8 +502,10 @@ export interface PolicySource {
   url: string;
   crawlFrequency: 'MANUAL' | 'DAILY' | 'WEEKLY' | string;
   status: Status | string;
+  autoIndex?: boolean;
   description?: string;
   lastCrawledAt?: string;
+  lastError?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -512,7 +514,14 @@ export interface PolicySourceForm {
   name: string;
   url: string;
   crawlFrequency: string;
+  autoIndex?: boolean;
   description?: string;
+}
+
+export interface PolicyArticleConfirmResult {
+  confirmedCount: number;
+  failedCount: number;
+  failures: { articleId: ID; errorMessage: string }[];
 }
 
 export interface PolicyCrawlTask {
@@ -539,7 +548,9 @@ export interface PolicyArticle {
   summary: string;
   publishDate?: string;
   category?: string;
+  policyNo?: string;
   indexStatus: Status | string;
+  errorMessage?: string;
   createdAt: string;
   updatedAt: string;
 }

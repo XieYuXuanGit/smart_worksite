@@ -10,6 +10,7 @@ public class PolicySource {
     private String urlHash;
     private String crawlFrequency;
     private String status;
+    private Boolean autoIndex;
     private String description;
     private LocalDateTime lastCrawledAt;
     private String lastError;
@@ -32,6 +33,8 @@ public class PolicySource {
     public void setCrawlFrequency(String crawlFrequency) { this.crawlFrequency = crawlFrequency; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public Boolean getAutoIndex() { return autoIndex; }
+    public void setAutoIndex(Boolean autoIndex) { this.autoIndex = autoIndex; }
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
     public LocalDateTime getLastCrawledAt() { return lastCrawledAt; }

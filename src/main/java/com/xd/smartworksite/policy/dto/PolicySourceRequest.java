@@ -18,6 +18,7 @@ public class PolicySourceRequest {
     private String crawlFrequency;
     @Size(max = 1000)
     private String description;
+    private Boolean autoIndex;
 
     public Long getProjectId() { return projectId; }
     public void setProjectId(Long projectId) { this.projectId = projectId; }
@@ -29,4 +30,6 @@ public class PolicySourceRequest {
     public void setCrawlFrequency(String crawlFrequency) { this.crawlFrequency = crawlFrequency; }
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+    public Boolean getAutoIndex() { return autoIndex; }
+    public void setAutoIndex(Boolean autoIndex) { this.autoIndex = autoIndex; }
 }

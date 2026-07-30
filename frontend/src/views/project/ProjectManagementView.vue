@@ -7,7 +7,8 @@ import EmptyState from '../../components/common/EmptyState.vue';
 import { archiveProject, createProject, deleteProject, disableProject, enableProject, fetchProjectSettings, fetchProjects, updateProject, updateProjectSettings } from '../../api/project';
 import * as memberApi from '../../api/member';
 import * as userApi from '../../api/user';
-import type { ProjectItem, ProjectMemberItem, ProjectSettings, UserItem } from '../../api/types';
+import { fetchKnowledgeBases } from '../../api/knowledge';
+import type { KnowledgeBase, ProjectItem, ProjectMemberItem, ProjectSettings, UserItem } from '../../api/types';
 import { useProjectStore } from '../../stores/project';
 import { useUserStore } from '../../stores/user';
 import { hasSuspiciousText } from '../../utils/textQuality';
@@ -33,6 +34,9 @@ const settingsDialogVisible = ref(false);
 const settingsLoading = ref(false);
 const settingsSaving = ref(false);
 const settingsProject = ref<ProjectItem | null>(null);
+const settingsKnowledgeBases = ref<KnowledgeBase[]>([]);
+const settingsKnowledgeBaseLoading = ref(false);
+const settingsKnowledgeBaseError = ref('');
 const members = ref<ProjectMemberItem[]>([]);
 const allUsers = ref<UserItem[]>([]);
 const canManageProject = computed(() => userStore.hasPermission('project:manage'));
@@ -255,6 +259,7 @@ async function openSettings(row: ProjectItem) {
   settingsProject.value = row;
   settingsDialogVisible.value = true;
   settingsLoading.value = true;
+  settingsKnowledgeBases.value = [];
   try {
     const settings = await fetchProjectSettings(row.projectId);
     Object.assign(settingsForm, settings);
@@ -263,6 +268,21 @@ async function openSettings(row: ProjectItem) {
     ElMessage.error(getErrorMessage(err, '项目设置加载失败，请检查后端项目设置接口。'));
   } finally {
     settingsLoading.value = false;
+  }
+  await loadSettingsKnowledgeBases(row.projectId);
+}
+
+async function loadSettingsKnowledgeBases(projectId: ProjectItem['projectId']) {
+  settingsKnowledgeBaseLoading.value = true;
+  settingsKnowledgeBaseError.value = '';
+  try {
+    // 后端 KnowledgeBaseQueryRequest 的 pageSize 上限为 100
+    settingsKnowledgeBases.value = await fetchKnowledgeBases(projectId, { pageNo: 1, pageSize: 100 });
+  } catch (err) {
+    settingsKnowledgeBases.value = [];
+    settingsKnowledgeBaseError.value = getErrorMessage(err, '知识库列表加载失败');
+  } finally {
+    settingsKnowledgeBaseLoading.value = false;
   }
 }
 
@@ -347,12 +367,36 @@ onMounted(loadProjects);
     </el-dialog>
     <el-dialog v-model="settingsDialogVisible" :title="`${settingsProject?.name || settingsProject?.projectName || '项目'} - 项目设置`" width="680px" destroy-on-close>
       <el-form v-loading="settingsLoading" label-width="150px">
-        <el-form-item label="默认知识库ID"><el-input v-model="settingsForm.defaultKnowledgeBaseId" clearable placeholder="可留空" /></el-form-item>
+        <el-form-item label="默认知识库">
+          <el-select
+            v-model="settingsForm.defaultKnowledgeBaseId"
+            clearable
+            filterable
+            :loading="settingsKnowledgeBaseLoading"
+            placeholder="可留空；互联网政策资讯采集需要选择"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="base in settingsKnowledgeBases"
+              :key="base.knowledgeBaseId"
+              :label="`${base.name}（ID: ${base.knowledgeBaseId}${base.status === 'ENABLED' ? '' : ' · 已停用'}）`"
+              :value="base.knowledgeBaseId"
+              :disabled="base.status !== 'ENABLED'"
+            />
+          </el-select>
+          <p v-if="settingsKnowledgeBaseError" class="form-error">
+            {{ settingsKnowledgeBaseError }}，无法列出可选知识库。
+            <el-button link type="primary" @click="settingsProject && loadSettingsKnowledgeBases(settingsProject.projectId)">重试</el-button>
+          </p>
+          <p v-else-if="!settingsKnowledgeBaseLoading && !settingsKnowledgeBases.length" class="form-hint">
+            该项目下还没有知识库，请先到「知识库管理」新建一个。
+          </p>
+        </el-form-item>
         <el-form-item label="默认报告模板ID"><el-input v-model="settingsForm.defaultReportTemplateId" clearable placeholder="可留空" /></el-form-item>
         <el-form-item label="数据保留天数"><el-input-number v-model="settingsForm.dataRetentionDays" :min="1" :max="3650" /></el-form-item>
         <el-form-item label="上传大小上限(MB)"><el-input-number v-model="settingsForm.uploadMaxSizeMb" :min="1" /></el-form-item>
         <el-form-item label="允许文件类型"><el-input v-model="allowedFileTypesText" placeholder="docx,pdf,jpg,png" /></el-form-item>
-        <el-form-item label="政策资讯 Mock 开关"><el-switch v-model="settingsForm.internetPolicyCrawlerEnabled" active-text="启用" inactive-text="停用" /></el-form-item>
+        <el-form-item label="互联网政策资讯采集"><el-switch v-model="settingsForm.internetPolicyCrawlerEnabled" active-text="启用" inactive-text="停用" /></el-form-item>
         <el-form-item label="默认问答路由">
           <el-select v-model="settingsForm.defaultQaRouteMode" style="width: 220px">
             <el-option label="自动路由" value="AUTO" />
@@ -436,4 +480,5 @@ onMounted(loadProjects);
 .member-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .member-alert { margin-bottom: 12px; }
 .form-error { width: 100%; margin-top: 6px; color: var(--el-color-danger); font-size: 12px; }
+.form-hint { width: 100%; margin: 6px 0 0; color: var(--sw-muted); font-size: 12px; line-height: 1.6; }
 </style>

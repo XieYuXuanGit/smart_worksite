@@ -15,6 +15,7 @@ public class PolicySourceUpdateRequest {
     private String crawlFrequency;
     @Size(max = 1000)
     private String description;
+    private Boolean autoIndex;
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
@@ -24,4 +25,6 @@ public class PolicySourceUpdateRequest {
     public void setCrawlFrequency(String crawlFrequency) { this.crawlFrequency = crawlFrequency; }
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+    public Boolean getAutoIndex() { return autoIndex; }
+    public void setAutoIndex(Boolean autoIndex) { this.autoIndex = autoIndex; }
 }

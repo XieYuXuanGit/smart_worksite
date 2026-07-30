@@ -9,6 +9,7 @@
         <result property="urlHash" column="url_hash"/>
         <result property="crawlFrequency" column="crawl_frequency"/>
         <result property="status" column="status"/>
+        <result property="autoIndex" column="auto_index"/>
         <result property="description" column="description"/>
         <result property="lastCrawledAt" column="last_crawled_at"/>
         <result property="lastError" column="last_error"/>
@@ -55,13 +56,13 @@
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
     </resultMap>
-    <sql id="SourceColumns">id, project_id, name, url, url_hash, crawl_frequency, status, description, last_crawled_at, last_error, created_by, updated_by, created_at, updated_at</sql>
+    <sql id="SourceColumns">id, project_id, name, url, url_hash, crawl_frequency, status, auto_index, description, last_crawled_at, last_error, created_by, updated_by, created_at, updated_at</sql>
     <sql id="ArticleColumns">id, project_id, source_id, title, url, url_hash, summary, content, publish_date, category, policy_no, index_status, error_message, created_by, updated_by, created_at, updated_at</sql>
     <sql id="CrawlTaskColumns">task_id, project_id, source_id, source_name, status, progress, fetched_count, indexed_count, failed_count, message, error_message, started_at, finished_at, created_by, updated_by, created_at, updated_at</sql>
 
     <insert id="insertSource" useGeneratedKeys="true" keyProperty="id">
-        insert into policy_source (project_id, name, url, url_hash, crawl_frequency, status, description, created_by, updated_by)
-        values (#{projectId}, #{name}, #{url}, #{urlHash}, #{crawlFrequency}, #{status}, #{description}, #{createdBy}, #{updatedBy})
+        insert into policy_source (project_id, name, url, url_hash, crawl_frequency, status, auto_index, description, created_by, updated_by)
+        values (#{projectId}, #{name}, #{url}, #{urlHash}, #{crawlFrequency}, #{status}, #{autoIndex}, #{description}, #{createdBy}, #{updatedBy})
     </insert>
     <select id="selectSourceById" resultMap="SourceResultMap">
         select <include refid="SourceColumns"/> from policy_source where id = #{sourceId} and deleted = 0
@@ -111,8 +112,12 @@
           and gt.status in ('QUEUED', 'RUNNING', 'RETRYING')
     </select>
     <update id="updateSource">
-        update policy_source set name = #{name}, url = #{url}, url_hash = #{urlHash}, crawl_frequency = #{crawlFrequency}, description = #{description}, updated_by = #{updatedBy}
+        update policy_source set name = #{name}, url = #{url}, url_hash = #{urlHash}, crawl_frequency = #{crawlFrequency}, auto_index = #{autoIndex}, description = #{description}, updated_by = #{updatedBy}
         where id = #{id} and deleted = 0
+    </update>
+    <update id="updateSourceStatus">
+        update policy_source set status = #{status}, updated_by = #{updatedBy}
+        where id = #{sourceId} and status != #{status} and deleted = 0
     </update>
     <update id="softDeleteSource">
         update policy_source set deleted = 1, updated_by = #{updatedBy} where id = #{sourceId} and deleted = 0
@@ -179,6 +184,16 @@
         <if test="publishDateTo != null">and publish_date &lt;= #{publishDateTo}</if>
         order by publish_date desc, updated_at desc, id desc
     </select>
+    <select id="selectArticlesByIds" resultMap="ArticleResultMap">
+        select <include refid="ArticleColumns"/> from policy_article
+        where deleted = 0 and project_id = #{projectId}
+          and id in <foreach collection="articleIds" item="aid" open="(" separator="," close=")">#{aid}</foreach>
+        order by id asc
+    </select>
+    <update id="markArticlePendingConfirm">
+        update policy_article set index_status = 'PENDING_CONFIRM', error_message = null, updated_by = #{updatedBy}
+        where id = #{articleId} and deleted = 0
+    </update>
     <update id="markArticleIndexing">
         update policy_article set index_status = 'INDEXING', error_message = null, updated_by = #{updatedBy} where id = #{articleId} and deleted = 0
     </update>

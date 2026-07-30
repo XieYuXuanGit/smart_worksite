@@ -18,6 +18,7 @@ public interface PolicyRepository {
     int countActiveCrawlTask(Long sourceId);
     int countActiveProjectCrawlTask(Long projectId);
     int updateSource(PolicySource source);
+    int updateSourceStatus(Long sourceId, String status, Long updatedBy);
     int softDeleteSource(Long sourceId, Long updatedBy);
     int markSourceCrawled(Long sourceId, String lastError, Long updatedBy);
     int markSourceFailed(Long sourceId, String lastError, Long updatedBy);
@@ -36,6 +37,8 @@ public interface PolicyRepository {
     Optional<PolicyArticle> findArticleById(Long articleId);
     List<PolicyArticle> findArticles(Long projectId, List<Long> accessibleProjectIds, Long sourceId, String keyword,
                                      String indexStatus, LocalDate publishDateFrom, LocalDate publishDateTo);
+    List<PolicyArticle> findArticlesByIds(Long projectId, List<Long> articleIds);
+    int markArticlePendingConfirm(Long articleId, Long updatedBy);
     int markArticleIndexing(Long articleId, Long updatedBy);
     int markArticleIndexSuccess(Long articleId, Long updatedBy);
     int markArticleIndexFailed(Long articleId, String errorMessage, Long updatedBy);

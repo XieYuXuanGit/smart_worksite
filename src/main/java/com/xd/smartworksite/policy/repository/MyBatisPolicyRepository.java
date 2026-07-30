@@ -27,6 +27,7 @@ public class MyBatisPolicyRepository implements PolicyRepository {
     public int countActiveCrawlTask(Long sourceId) { return policyMapper.countActiveCrawlTask(sourceId); }
     public int countActiveProjectCrawlTask(Long projectId) { return policyMapper.countActiveProjectCrawlTask(projectId); }
     public int updateSource(PolicySource source) { return policyMapper.updateSource(source); }
+    public int updateSourceStatus(Long sourceId, String status, Long updatedBy) { return policyMapper.updateSourceStatus(sourceId, status, updatedBy); }
     public int softDeleteSource(Long sourceId, Long updatedBy) { return policyMapper.softDeleteSource(sourceId, updatedBy); }
     public int markSourceCrawled(Long sourceId, String lastError, Long updatedBy) { return policyMapper.markSourceCrawled(sourceId, lastError, updatedBy); }
     public int markSourceFailed(Long sourceId, String lastError, Long updatedBy) { return policyMapper.markSourceFailed(sourceId, lastError, updatedBy); }
@@ -43,6 +44,8 @@ public class MyBatisPolicyRepository implements PolicyRepository {
     public Optional<PolicyArticle> findArticleByProjectAndHash(Long projectId, String urlHash) { return Optional.ofNullable(policyMapper.selectArticleByProjectAndHash(projectId, urlHash)); }
     public Optional<PolicyArticle> findArticleById(Long articleId) { return Optional.ofNullable(policyMapper.selectArticleById(articleId)); }
     public List<PolicyArticle> findArticles(Long projectId, List<Long> accessibleProjectIds, Long sourceId, String keyword, String indexStatus, LocalDate publishDateFrom, LocalDate publishDateTo) { return policyMapper.selectArticles(projectId, accessibleProjectIds, sourceId, keyword, indexStatus, publishDateFrom, publishDateTo); }
+    public List<PolicyArticle> findArticlesByIds(Long projectId, List<Long> articleIds) { return policyMapper.selectArticlesByIds(projectId, articleIds); }
+    public int markArticlePendingConfirm(Long articleId, Long updatedBy) { return policyMapper.markArticlePendingConfirm(articleId, updatedBy); }
     public int markArticleIndexing(Long articleId, Long updatedBy) { return policyMapper.markArticleIndexing(articleId, updatedBy); }
     public int markArticleIndexSuccess(Long articleId, Long updatedBy) { return policyMapper.markArticleIndexSuccess(articleId, updatedBy); }
     public int markArticleIndexFailed(Long articleId, String errorMessage, Long updatedBy) { return policyMapper.markArticleIndexFailed(articleId, errorMessage, updatedBy); }

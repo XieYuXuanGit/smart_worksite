@@ -139,6 +139,19 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                      项目 java.version 为 17，但开发机可能装的是更高版本 JDK。
+                      Mockito 依赖的 ByteBuddy 在未适配的高版本 JDK 上无法织入具体类，
+                      导致所有 mock(具体类) 的测试报 "Could not modify all classes"。
+                      开启 experimental 让 ByteBuddy 在未适配 JDK 上继续工作。
+                    -->
+                    <argLine>-Dnet.bytebuddy.experimental=true</argLine>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

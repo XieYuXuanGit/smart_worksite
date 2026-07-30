@@ -21,6 +21,7 @@ public interface PolicyMapper {
     int countActiveCrawlTask(@Param("sourceId") Long sourceId);
     int countActiveProjectCrawlTask(@Param("projectId") Long projectId);
     int updateSource(PolicySource source);
+    int updateSourceStatus(@Param("sourceId") Long sourceId, @Param("status") String status, @Param("updatedBy") Long updatedBy);
     int softDeleteSource(@Param("sourceId") Long sourceId, @Param("updatedBy") Long updatedBy);
     int markSourceCrawled(@Param("sourceId") Long sourceId, @Param("lastError") String lastError, @Param("updatedBy") Long updatedBy);
     int markSourceFailed(@Param("sourceId") Long sourceId, @Param("lastError") String lastError, @Param("updatedBy") Long updatedBy);
@@ -44,6 +45,8 @@ public interface PolicyMapper {
                                        @Param("sourceId") Long sourceId, @Param("keyword") String keyword,
                                        @Param("indexStatus") String indexStatus, @Param("publishDateFrom") LocalDate publishDateFrom,
                                        @Param("publishDateTo") LocalDate publishDateTo);
+    List<PolicyArticle> selectArticlesByIds(@Param("projectId") Long projectId, @Param("articleIds") List<Long> articleIds);
+    int markArticlePendingConfirm(@Param("articleId") Long articleId, @Param("updatedBy") Long updatedBy);
     int markArticleIndexing(@Param("articleId") Long articleId, @Param("updatedBy") Long updatedBy);
     int markArticleIndexSuccess(@Param("articleId") Long articleId, @Param("updatedBy") Long updatedBy);
     int markArticleIndexFailed(@Param("articleId") Long articleId, @Param("errorMessage") String errorMessage, @Param("updatedBy") Long updatedBy);

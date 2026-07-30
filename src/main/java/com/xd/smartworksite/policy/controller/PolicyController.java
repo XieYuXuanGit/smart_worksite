@@ -38,6 +38,13 @@ public class PolicyController {
         return ApiResponse.success(policyApplicationService.updateSource(sourceId, request));
     }
 
+    @PatchMapping("/sources/{sourceId}/status")
+    @PreAuthorize("hasAuthority('policy:manage')")
+    public ApiResponse<PolicySourceResponse> updateSourceStatus(@PathVariable Long sourceId,
+                                                                @Valid @RequestBody PolicySourceStatusRequest request) {
+        return ApiResponse.success(policyApplicationService.updateSourceStatus(sourceId, request));
+    }
+
     @DeleteMapping("/sources/{sourceId}")
     @PreAuthorize("hasAuthority('policy:manage')")
     public ApiResponse<Void> deleteSource(@PathVariable Long sourceId) {
@@ -61,5 +68,11 @@ public class PolicyController {
     @PreAuthorize("hasAuthority('knowledge:view')")
     public ApiResponse<PageResult<PolicyArticleResponse>> listArticles(@Valid PolicyArticleQueryRequest request) {
         return ApiResponse.success(policyApplicationService.queryArticles(request));
+    }
+
+    @PostMapping("/articles/confirm")
+    @PreAuthorize("hasAuthority('policy:manage')")
+    public ApiResponse<PolicyArticleConfirmResponse> confirmArticles(@Valid @RequestBody PolicyArticleConfirmRequest request) {
+        return ApiResponse.success(policyApplicationService.confirmArticles(request));
     }
 }
