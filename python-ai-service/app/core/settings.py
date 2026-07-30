@@ -40,6 +40,16 @@ class Settings(BaseSettings):
     pgvector_dsn: str = ""
     pgvector_table: str = "smart_worksite_chunks"
 
+    # 政策资讯采集。调大 policy_crawl_max_articles 需同步调大 Java 侧
+    # AI_PYTHON_READ_TIMEOUT_MS，否则单次采集会读超时：
+    # 预计耗时 ≈ max_articles × (delay_seconds + 单页下载耗时)
+    policy_crawl_respect_robots: bool = True
+    policy_crawl_delay_seconds: float = 1.5
+    policy_crawl_max_articles: int = 30
+    policy_crawl_timeout_seconds: int = 30
+    policy_crawl_min_article_chars: int = 200
+    policy_crawl_max_detail_links: int = 20
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 

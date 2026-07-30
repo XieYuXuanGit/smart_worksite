@@ -188,6 +188,7 @@ class PolicyCrawlRequest(BaseModel):
     sourceId: int
     url: str
     lastCrawledAt: str | None = None
+    pageType: str | None = None  # AUTO(默认)、LIST 栏目页、DETAIL 详情页
 
 
 class PolicyCrawlArticle(BaseModel):
@@ -203,5 +204,7 @@ class PolicyCrawlArticle(BaseModel):
 
 class PolicyCrawlData(BaseModel):
     fetchedCount: int = 0
+    failedCount: int = 0
+    skippedCount: int = 0
     message: str = ""
     articles: list[PolicyCrawlArticle] = Field(default_factory=list)

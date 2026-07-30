@@ -294,12 +294,16 @@ public class PolicyApplicationService {
         int fetched = 0;
         int indexed = 0;
         int failed = 0;
+        int articleFailed = 0;
+        int skipped = 0;
         String lastError = null;
         for (PolicySource source : sources) {
             try {
                 PolicyCrawlerResponse response = crawlSource(source);
                 List<PolicyCrawlerArticle> articles = response.getArticles() == null ? List.of() : response.getArticles();
                 fetched += response.getFetchedCount() == null ? articles.size() : response.getFetchedCount();
+                articleFailed += response.getFailedCount() == null ? 0 : response.getFailedCount();
+                skipped += response.getSkippedCount() == null ? 0 : response.getSkippedCount();
                 for (PolicyCrawlerArticle item : articles) {
                     PolicyArticle article = upsertArticle(source, item);
                     try {
@@ -317,10 +321,12 @@ public class PolicyApplicationService {
                 requireUpdated(policyRepository.markSourceFailed(source.getId(), lastError, SYSTEM_USER_ID), "policy source failure update failed");
             }
         }
+        // 终态只由源级失败和入库失败决定；Python 侧单篇抓取失败和附件跳过只记录，不让个别文章拖垮整个任务
         String status = failed > 0 ? TaskStatus.FAILED.name() : TaskStatus.SUCCESS.name();
-        int progress = TaskStatus.SUCCESS.name().equals(status) ? 100 : 100;
-        requireUpdated(policyRepository.updateCrawlTaskProgress(task.getTaskId(), status, progress, fetched, indexed, failed,
-                failed > 0 ? "policy crawl completed with failures" : "policy crawl completed", lastError, SYSTEM_USER_ID),
+        String message = String.format("policy crawl %s, fetched=%d, indexed=%d, indexFailed=%d, articleFailed=%d, skipped=%d",
+                failed > 0 ? "completed with failures" : "completed", fetched, indexed, failed, articleFailed, skipped);
+        requireUpdated(policyRepository.updateCrawlTaskProgress(task.getTaskId(), status, 100, fetched, indexed,
+                failed + articleFailed, message, lastError, SYSTEM_USER_ID),
                 "policy crawl task final state update failed");
         if (failed > 0) {
             throw new BusinessException(ErrorCode.EXTERNAL_SERVICE_ERROR, lastError == null ? "policy crawl failed" : lastError);
